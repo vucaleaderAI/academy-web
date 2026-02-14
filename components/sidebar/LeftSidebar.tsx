@@ -12,10 +12,11 @@ import {
     FileCheck,
     MapPin,
     BarChart3,
-    Banknote
+    Banknote,
+    Trash2
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
@@ -32,6 +33,15 @@ const menuItems = [
 
 export default function LeftSidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+
+    const handleReset = () => {
+        if (confirm('모든 로컬 저장 데이터(메모, 설정 등)를 초기화하시겠습니까?')) {
+            localStorage.clear();
+            // Optional: refresh the page to apply initial state from stores
+            window.location.href = '/';
+        }
+    };
 
     return (
         <div className="flex flex-col h-full bg-white p-4">
@@ -67,6 +77,13 @@ export default function LeftSidebar() {
             </nav>
 
             <div className="mt-auto border-t border-slate-100 pt-4 space-y-1">
+                <button
+                    onClick={handleReset}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors group"
+                >
+                    <Trash2 className="w-5 h-5 text-red-500 group-hover:text-red-600 transition-colors" />
+                    데이터 초기화
+                </button>
                 <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors group">
                     <Settings className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                     설정
