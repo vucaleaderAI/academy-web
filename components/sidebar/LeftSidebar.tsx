@@ -3,7 +3,7 @@ import { NotebookPen, Calculator, FileText, Settings, User } from 'lucide-react'
 import Link from 'next/link';
 
 const menuItems = [
-    { name: '메모장', icon: NotebookPen, href: '#' },
+    { name: '메모장', icon: NotebookPen, href: '/notepad' }, // Updated link
     { name: '훈련일수 계산기', icon: Calculator, href: '/calculator' },
     { name: 'PDF 에디터', icon: FileText, href: '#' },
 ];
