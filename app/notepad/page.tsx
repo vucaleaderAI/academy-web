@@ -18,18 +18,10 @@ export default function NotepadPage() {
     return (
         <MainLayout
             leftSidebar={<LeftSidebar />}
-        // No RightSidebar passed, so MainLayout will expand main content to col-span-8 (80%)
+            rightSidebar={<NoteSidebar />}
         >
-            <div className="flex h-full">
-                {/* Note List Sidebar (Approx 30% of main area) */}
-                <div className="w-80 border-r border-slate-100 flex-shrink-0">
-                    <NoteSidebar />
-                </div>
-
-                {/* Editor Area (Remaining space) */}
-                <div className="flex-1 overflow-hidden">
-                    <NoteEditor />
-                </div>
+            <div className="h-full overflow-hidden flex flex-col">
+                <NoteEditor />
             </div>
         </MainLayout>
     );

@@ -24,18 +24,21 @@ export default function PdfSidebar() {
     // Settings State
     const [format, setFormat] = useState<'pdf' | 'img'>('pdf');
     const [pageSize, setPageSize] = useState<'a4' | 'a3' | '16:9' | '9:16' | 'original'>('a4');
+    const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('medium');
     const [isExporting, setIsExporting] = useState(false);
 
     // Helpers
-    const getPageDimensions = (size: string, originalWidth: number, originalHeight: number) => {
+    const getPageSize = (size: string, orient: 'portrait' | 'landscape') => {
+        let width, height;
         switch (size) {
-            case 'a4': return PageSizes.A4;
-            case 'a3': return PageSizes.A3;
-            case '16:9': return [1920, 1080];
-            case '9:16': return [1080, 1920];
-            default: return [originalWidth, originalHeight];
+            case 'a4': [width, height] = PageSizes.A4; break;
+            case 'a3': [width, height] = PageSizes.A3; break;
+            case '16:9': width = 841.89; height = 473.56; break;
+            case '9:16': width = 473.56; height = 841.89; break;
+            default: [width, height] = PageSizes.A4;
         }
+        return orient === 'landscape' ? [Math.max(width, height), Math.min(width, height)] : [Math.min(width, height), Math.max(width, height)];
     };
 
     const getQualityScale = (q: string) => {
@@ -56,99 +59,115 @@ export default function PdfSidebar() {
                 ? pages.filter(p => selectedPageIds.has(p.id))
                 : pages;
 
+            // Sort by current index
+            const sortedPages = [...targets].sort((a, b) => pages.indexOf(a) - pages.indexOf(b));
+            const fileName = `merged_${Date.now()}`;
+
             if (format === 'pdf') {
-                await exportToPdf(targets);
+                const mergedPdf = await PDFDocument.create();
+
+                for (const page of sortedPages) {
+                    if (page.fileId.startsWith('image-')) {
+                        const imageBytes = await fetch(page.imageSrc).then(res => res.arrayBuffer());
+                        let image;
+                        if (page.imageSrc.includes('image/png')) {
+                            image = await mergedPdf.embedPng(imageBytes);
+                        } else {
+                            image = await mergedPdf.embedJpg(imageBytes);
+                        }
+
+                        let [width, height] = pageSize === 'original'
+                            ? [image.width, image.height]
+                            : getPageSize(pageSize, orientation);
+
+                        const pageDim = mergedPdf.addPage([width, height]);
+                        const imgDims = image.scaleToFit(width, height);
+                        const x = (width - imgDims.width) / 2;
+                        const y = (height - imgDims.height) / 2;
+
+                        pageDim.drawImage(image, {
+                            x,
+                            y,
+                            width: imgDims.width,
+                            height: imgDims.height,
+                            rotate: degrees(page.rotation || 0),
+                        });
+                    } else {
+                        const existingPdfBytes = await fetch(URL.createObjectURL(page.originalFile)).then(res => res.arrayBuffer());
+                        const sourcePdf = await PDFDocument.load(existingPdfBytes);
+                        const [copiedPage] = await mergedPdf.copyPages(sourcePdf, [page.pageIndex]);
+                        copiedPage.setRotation(degrees(page.rotation || 0));
+                        mergedPdf.addPage(copiedPage);
+                    }
+                }
+
+                const pdfBytes = await mergedPdf.save();
+                const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
+                await saveFile(blob, `${fileName}.pdf`);
             } else {
-                await exportToImages(targets);
+                // Stitching Logic
+                const images = await Promise.all(sortedPages.map(async (page) => {
+                    const img = new Image();
+                    img.src = page.imageSrc;
+                    await new Promise(resolve => img.onload = resolve);
+                    return img;
+                }));
+
+                const maxWidth = Math.max(...images.map(i => i.width));
+                const totalHeight = images.reduce((sum, i) => sum + i.height, 0);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = maxWidth;
+                canvas.height = totalHeight;
+                const ctx = canvas.getContext('2d');
+
+                if (ctx) {
+                    let currentY = 0;
+                    for (const img of images) {
+                        ctx.drawImage(img, 0, currentY);
+                        currentY += img.height;
+                    }
+
+                    canvas.toBlob(async (blob) => {
+                        if (blob) {
+                            await saveFile(blob, `${fileName}.png`);
+                        }
+                    }, 'image/png');
+                }
             }
         } catch (error) {
-            console.error(error);
-            alert('내보내기 중 오류가 발생했습니다.');
+            console.error('Export failed', error);
+            alert('파일 내보내기 중 오류가 발생했습니다.');
         } finally {
             setIsExporting(false);
         }
     };
 
-    const exportToPdf = async (targets: PdfPage[]) => {
-        const mergedPdf = await PDFDocument.create();
-
-        for (const page of targets) {
-            // Load source file
-            const fileBuffer = await page.originalFile.arrayBuffer();
-
-            if (page.originalFile.type === 'application/pdf') {
-                const srcPdf = await PDFDocument.load(fileBuffer);
-                const [srcPage] = await mergedPdf.copyPages(srcPdf, [page.pageIndex]);
-
-                // Get target dimensions
-                const originalDims = srcPage.getSize();
-                const [targetWidth, targetHeight] = getPageDimensions(pageSize, originalDims.width, originalDims.height);
-
-                // If resize is needed (simplistic scaling)
-                if (pageSize !== 'original') {
-                    srcPage.scale(targetWidth / originalDims.width, targetHeight / originalDims.height);
-                }
-
-                // Apply rotation
-                srcPage.setRotation(degrees(page.rotation));
-
-                mergedPdf.addPage(srcPage);
-
-            } else {
-                // Image to PDF page
-                let image;
-                if (page.originalFile.type === 'image/png') {
-                    image = await mergedPdf.embedPng(fileBuffer);
-                } else {
-                    image = await mergedPdf.embedJpg(fileBuffer);
-                }
-
-                const originalDims = image.scale(1);
-                const [targetWidth, targetHeight] = getPageDimensions(pageSize, originalDims.width, originalDims.height);
-
-                const pdfPage = mergedPdf.addPage([targetWidth, targetHeight]);
-
-                // Draw image to fit page (contain)
-                const scale = Math.min(targetWidth / originalDims.width, targetHeight / originalDims.height);
-                const drawWidth = originalDims.width * scale;
-                const drawHeight = originalDims.height * scale;
-                const x = (targetWidth - drawWidth) / 2;
-                const y = (targetHeight - drawHeight) / 2;
-
-                pdfPage.drawImage(image, {
-                    x,
-                    y,
-                    width: drawWidth,
-                    height: drawHeight,
-                    rotate: degrees(page.rotation),
+    const saveFile = async (blob: Blob, fileName: string) => {
+        if ('showSaveFilePicker' in window) {
+            try {
+                const handle = await (window as any).showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [{
+                        description: 'Merged File',
+                        accept: { [blob.type]: [`.${fileName.split('.').pop()}`] },
+                    }],
                 });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                return;
+            } catch (err: any) {
+                if (err.name !== 'AbortError') saveAs(blob, fileName);
             }
+        } else {
+            saveAs(blob, fileName);
         }
-
-        const pdfBytes = await mergedPdf.save();
-        const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-        saveAs(blob, `merged_${Date.now()}.pdf`);
     };
 
-    const exportToImages = async (targets: PdfPage[]) => {
-        const zip = new JSZip();
-        const folder = zip.folder("images");
 
-        for (let i = 0; i < targets.length; i++) {
-            const page = targets[i];
 
-            // For simplicity, we save the original image extracted/rendered in store if possible, 
-            // but since imageSrc is dataURL, we can use that.
-            // Note: This uses the preview resolution. For higher quality, we might need to re-render.
-            // For MVP, we use the preview imageSrc which was rendered at 1.5 scale.
 
-            const base64Data = page.imageSrc.split(',')[1];
-            folder?.file(`page_${i + 1}.png`, base64Data, { base64: true });
-        }
-
-        const content = await zip.generateAsync({ type: "blob" });
-        saveAs(content, `images_${Date.now()}.zip`);
-    };
 
     return (
         <div className="w-80 bg-white border-l border-slate-200 p-6 flex flex-col h-full overflow-y-auto">
@@ -216,28 +235,92 @@ export default function PdfSidebar() {
                             )}
                         >
                             <ImageIcon className="w-5 h-5 mb-1" />
-                            <span className="text-xs font-medium">이미지 (ZIP)</span>
+                            <span className="text-xs font-medium">이미지 병합</span>
                         </button>
                     </div>
                 </div>
 
-                {/* Size */}
-                <div>
-                    <label className="text-xs font-medium text-slate-700 mb-1.5 block">용지 크기 (PDF)</label>
-                    <div className="relative">
-                        <Maximize className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <select
-                            value={pageSize}
-                            onChange={(e) => setPageSize(e.target.value as any)}
-                            disabled={format === 'img'}
-                            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                {/* Page Size & Orientation Presets */}
+                <div className="space-y-3">
+                    <label className="text-sm font-medium text-slate-700">용지 설정</label>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            onClick={() => { setPageSize('a4'); setOrientation('portrait'); }}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center justify-center gap-2",
+                                pageSize === 'a4' && orientation === 'portrait'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
                         >
-                            <option value="original">원본 크기 유지</option>
-                            <option value="a4">A4 (210 x 297 mm)</option>
-                            <option value="a3">A3 (297 x 420 mm)</option>
-                            <option value="16:9">16:9 (1920 x 1080 px)</option>
-                            <option value="9:16">9:16 (1080 x 1920 px)</option>
-                        </select>
+                            <FileType className="w-4 h-4" /> A4 세로
+                        </button>
+                        <button
+                            onClick={() => { setPageSize('a4'); setOrientation('landscape'); }}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center justify-center gap-2",
+                                pageSize === 'a4' && orientation === 'landscape'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            <FileType className="w-4 h-4 rotate-90" /> A4 가로
+                        </button>
+                        <button
+                            onClick={() => { setPageSize('a3'); setOrientation('portrait'); }}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center justify-center gap-2",
+                                pageSize === 'a3' && orientation === 'portrait'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            <FileType className="w-4 h-4" /> A3 세로
+                        </button>
+                        <button
+                            onClick={() => { setPageSize('a3'); setOrientation('landscape'); }}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center justify-center gap-2",
+                                pageSize === 'a3' && orientation === 'landscape'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            <FileType className="w-4 h-4 rotate-90" /> A3 가로
+                        </button>
+                        <button
+                            onClick={() => setPageSize('16:9')}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                                pageSize === '16:9'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            16:9
+                        </button>
+                        <button
+                            onClick={() => setPageSize('9:16')}
+                            className={cn(
+                                "px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                                pageSize === '9:16'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            9:16
+                        </button>
+                        <button
+                            onClick={() => setPageSize('original')}
+                            className={cn(
+                                "col-span-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                                pageSize === 'original'
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                    : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                            )}
+                        >
+                            원본 크기 유지
+                        </button>
                     </div>
                 </div>
 
@@ -273,7 +356,7 @@ export default function PdfSidebar() {
                     className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 >
                     {isExporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-                    {isExporting ? '처리 중...' : '파일 내보내기'}
+                    {isExporting ? '처리 중...' : (format === 'img' ? '이미지 병합' : '파일 내보내기')}
                 </button>
 
                 <button

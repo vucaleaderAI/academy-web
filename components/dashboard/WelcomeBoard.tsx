@@ -18,12 +18,7 @@ export default function WelcomeBoard() {
                 </p>
 
                 <div className="flex justify-center gap-4">
-                    <button className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200 hover:shadow-lg hover:shadow-indigo-300 transform hover:-translate-y-0.5">
-                        메모장 열기 <ArrowRight className="w-4 h-4" />
-                    </button>
-                    <button className="px-6 py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-medium hover:bg-slate-50 transition-colors">
-                        사용 가이드
-                    </button>
+                    {/* Buttons removed as per request */}
                 </div>
             </div>
         </div>

@@ -4,6 +4,8 @@ import React from 'react';
 import PdfUploader from '@/components/pdf/PdfUploader';
 import PdfPageGrid from '@/components/pdf/PdfPageGrid';
 import PdfSidebar from '@/components/pdf/PdfSidebar';
+import MainLayout from '@/components/layout/MainLayout';
+import LeftSidebar from '@/components/sidebar/LeftSidebar';
 import { usePdfStore } from '@/store/pdfStore';
 import { FileStack } from 'lucide-react';
 import Link from 'next/link';
@@ -13,16 +15,14 @@ export default function PdfEditorPage() {
     const { pages } = usePdfStore();
 
     return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900">
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-
+        <MainLayout
+            leftSidebar={<LeftSidebar />}
+            rightSidebar={<PdfSidebar />}
+        >
+            <div className="flex flex-col h-full overflow-hidden relative">
                 {/* Header */}
                 <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10 shrink-0">
                     <div className="flex items-center gap-4">
-                        <Link href="/" className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
-                            <ArrowLeft className="w-5 h-5" />
-                        </Link>
                         <div className="flex items-center gap-2">
                             <div className="p-1.5 bg-indigo-100 rounded-lg text-indigo-600">
                                 <FileStack className="w-5 h-5" />
@@ -35,8 +35,8 @@ export default function PdfEditorPage() {
                 </header>
 
                 {/* Content Scroll Area */}
-                <main className="flex-1 overflow-y-auto p-6">
-                    <div className="max-w-7xl mx-auto space-y-8">
+                <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+                    <div className="max-w-4xl mx-auto space-y-8">
                         {/* Uploader - Always visible but smaller when pages exist */}
                         {pages.length === 0 ? (
                             <div className="py-20 animate-in fade-in zoom-in-95 duration-500">
@@ -60,11 +60,8 @@ export default function PdfEditorPage() {
                             </div>
                         )}
                     </div>
-                </main>
+                </div>
             </div>
-
-            {/* Sidebar */}
-            <PdfSidebar />
-        </div>
+        </MainLayout>
     );
 }

@@ -53,9 +53,11 @@ function SortablePdfPage({ page, isSelected, onToggleSelect, onRemove, onRotate 
             ref={setNodeRef}
             style={style}
             className={cn(
-                "relative group aspect-[3/4] bg-white rounded-lg shadow-sm border-2 transition-all overflow-hidden",
-                isSelected ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200 hover:border-indigo-300",
-                isDragging && "z-50 shadow-xl scale-105"
+                "relative group aspect-[1/1.414] bg-white rounded-lg shadow-sm border transition-all overflow-hidden",
+                isSelected
+                    ? "border-indigo-600 ring-4 ring-indigo-500 ring-offset-2 z-10 scale-[1.02]"
+                    : "border-slate-200 hover:border-indigo-300 hover:shadow-md",
+                isDragging && "z-50 shadow-xl scale-105 opacity-80"
             )}
         >
             {/* Image Preview */}

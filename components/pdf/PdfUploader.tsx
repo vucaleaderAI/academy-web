@@ -1,40 +1,59 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import * as pdfjsLib from 'pdfjs-dist';
 import { usePdfStore, PdfPage } from '@/store/pdfStore';
 import { cn } from '@/lib/utils';
-
-// pdfjs worker setup
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 export default function PdfUploader() {
     const addPages = usePdfStore((state) => state.addPages);
     const [isProcessing, setIsProcessing] = useState(false);
     const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+    const [pdfjsLib, setPdfjsLib] = useState<any>(null);
 
-    const processFile = async (file: File) => {
+    useEffect(() => {
+        const loadPdfJs = async () => {
+            try {
+                const lib = await import('pdfjs-dist');
+                lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+                setPdfjsLib(lib);
+            } catch (error) {
+                console.error('Failed to load pdfjs-dist:', error);
+            }
+        };
+        loadPdfJs();
+    }, []);
+
+    const processFile = async (file: File): Promise<PdfPage[]> => {
         if (file.type === 'application/pdf') {
-            const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-            const newPages: PdfPage[] = [];
-            const fileId = uuidv4();
+            if (!pdfjsLib) {
+                console.warn('PDF.js not loaded yet');
+                return [];
+            }
 
-            setProgress({ current: 0, total: pdf.numPages });
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                const newPages: PdfPage[] = [];
+                const fileId = uuidv4();
 
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const viewport = page.getViewport({ scale: 1.5 }); // Increased scale for better quality
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
+                setProgress({ current: 0, total: pdf.numPages });
 
-                if (context) {
-                    await page.render({ canvasContext: context, viewport } as any).promise;
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 1.5 });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+
+                    if (!context) continue;
+
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport }).promise;
+
                     newPages.push({
                         id: uuidv4(),
                         fileId,
@@ -45,10 +64,14 @@ export default function PdfUploader() {
                         height: viewport.height,
                         rotation: 0,
                     });
+
+                    setProgress({ current: i, total: pdf.numPages });
                 }
-                setProgress({ current: i, total: pdf.numPages });
+                return newPages;
+            } catch (e) {
+                console.error(e);
+                return [];
             }
-            return newPages;
         } else if (file.type.startsWith('image/')) {
             return new Promise<PdfPage[]>((resolve) => {
                 const reader = new FileReader();
@@ -83,7 +106,9 @@ export default function PdfUploader() {
                 const pages = await processFile(file);
                 allNewPages.push(...pages);
             }
-            addPages(allNewPages);
+            if (allNewPages.length > 0) {
+                addPages(allNewPages);
+            }
         } catch (error) {
             console.error("Error processing files:", error);
             alert("파일 처리 중 오류가 발생했습니다.");
@@ -91,7 +116,7 @@ export default function PdfUploader() {
             setIsProcessing(false);
             setProgress(null);
         }
-    }, [addPages]);
+    }, [addPages, pdfjsLib]);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
